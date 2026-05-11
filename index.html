@@ -1,532 +1,396 @@
-import { useState, useEffect, useRef } from "react";
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>FreshCheck</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#060e06;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:'Segoe UI',Tahoma,sans-serif}
+  button{font-family:inherit;cursor:pointer}
+  input{font-family:inherit}
+  @keyframes scanLine{0%{top:0}100%{top:177px}}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  .fade{animation:fadeIn 0.3s ease}
+  ::-webkit-scrollbar{width:4px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:#1e3a1e;border-radius:4px}
+</style>
+</head>
+<body>
 
+<div id="app"></div>
+
+<script>
 const PRODUCTS = {
-  chicken: { label: "دجاج 🐔", color: "#f5c842", shelfLife: { room: 0.5, fridge: 3, freezer: 270 }, gasRate: "عالي" },
-  beef: { label: "لحم بقري 🥩", color: "#c0392b", shelfLife: { room: 1, fridge: 5, freezer: 365 }, gasRate: "متوسط" },
-  lamb: { label: "لحم غنم 🍖", color: "#e67e22", shelfLife: { room: 0.5, fridge: 4, freezer: 300 }, gasRate: "منخفض" },
+  chicken:{label:"دجاج 🐔",color:"#f5c842",shelf:{room:0.5,fridge:3,freezer:270}},
+  beef:   {label:"لحم بقري 🥩",color:"#c0392b",shelf:{room:1,fridge:5,freezer:365}},
+  lamb:   {label:"لحم غنم 🍖",color:"#e67e22",shelf:{room:0.5,fridge:4,freezer:300}},
 };
-
-const ENV_LABELS = { room: "درجة حرارة الغرفة 🌡️", fridge: "الثلاجة ❄️", freezer: "الفريزر 🧊" };
-
-const MOCK_ITEMS = [
-  { id: "QR-001", name: "صدر دجاج", type: "chicken", env: "fridge", addedDate: Date.now() - 2 * 86400000, status: "fresh", barcode: "5901234123457" },
-  { id: "QR-002", name: "ريش لحم بقري", type: "beef", env: "freezer", addedDate: Date.now() - 10 * 86400000, status: "fresh", barcode: "4006381333931" },
-  { id: "QR-003", name: "كتف غنم", type: "lamb", env: "fridge", addedDate: Date.now() - 3.5 * 86400000, status: "warning", barcode: "8710398524578" },
+const ENV={room:"درجة حرارة الغرفة 🌡️",fridge:"الثلاجة ❄️",freezer:"الفريزر 🧊"};
+let inventory=[
+  {id:"QR-001",name:"صدر دجاج",type:"chicken",env:"fridge",added:Date.now()-2*864e5,status:"fresh",barcode:"5901234123457"},
+  {id:"QR-002",name:"ريش لحم بقري",type:"beef",env:"freezer",added:Date.now()-10*864e5,status:"fresh",barcode:"4006381333931"},
+  {id:"QR-003",name:"كتف غنم",type:"lamb",env:"fridge",added:Date.now()-3.5*864e5,status:"warning",barcode:"8710398524578"},
 ];
+let currentTab="inventory";
 
-function getStatusColor(status) {
-  if (status === "fresh") return "#00e676";
-  if (status === "warning") return "#ffb300";
-  return "#f44336";
+function sc(s){return s==="fresh"?"#00e676":s==="warning"?"#ffb300":"#f44336"}
+function sl(s){return s==="fresh"?"طازج":s==="warning"?"قريب من الانتهاء":"منتهي الصلاحية"}
+function daysLeft(item){
+  const d=PRODUCTS[item.type].shelf[item.env];
+  return Math.max(0,d-(Date.now()-item.added)/864e5).toFixed(1);
 }
 
-function getStatusLabel(status) {
-  if (status === "fresh") return "طازج";
-  if (status === "warning") return "قريب من الانتهاء";
-  return "منتهي الصلاحية";
-}
-
-function getDaysLeft(item) {
-  const p = PRODUCTS[item.type];
-  const shelfDays = p.shelfLife[item.env];
-  const elapsed = (Date.now() - item.addedDate) / 86400000;
-  return Math.max(0, shelfDays - elapsed).toFixed(1);
-}
-
-function QRScannerIcon() {
-  return (
-    <svg viewBox="0 0 100 100" width="80" height="80" fill="none">
-      <rect x="5" y="5" width="30" height="30" rx="4" stroke="#00e676" strokeWidth="4" fill="none"/>
-      <rect x="65" y="5" width="30" height="30" rx="4" stroke="#00e676" strokeWidth="4" fill="none"/>
-      <rect x="5" y="65" width="30" height="30" rx="4" stroke="#00e676" strokeWidth="4" fill="none"/>
-      <rect x="13" y="13" width="14" height="14" rx="2" fill="#00e676"/>
-      <rect x="73" y="13" width="14" height="14" rx="2" fill="#00e676"/>
-      <rect x="13" y="73" width="14" height="14" rx="2" fill="#00e676"/>
-      <line x1="65" y1="65" x2="95" y2="65" stroke="#00e676" strokeWidth="3"/>
-      <line x1="65" y1="75" x2="85" y2="75" stroke="#00e676" strokeWidth="3"/>
-      <line x1="65" y1="85" x2="95" y2="85" stroke="#00e676" strokeWidth="3"/>
-      <line x1="65" y1="95" x2="75" y2="95" stroke="#00e676" strokeWidth="3"/>
-      <line x1="85" y1="95" x2="95" y2="95" stroke="#00e676" strokeWidth="3"/>
-    </svg>
-  );
-}
-
-function FreshnessGauge({ status }) {
-  const value = status === "fresh" ? 0.85 : status === "warning" ? 0.45 : 0.1;
-  const color = getStatusColor(status);
-  const angle = value * 180;
-  const r = 70;
-  const cx = 100; const cy = 100;
-  const toRad = (deg) => (deg * Math.PI) / 180;
-  const arcX = cx + r * Math.cos(toRad(180 + angle));
-  const arcY = cy + r * Math.sin(toRad(180 + angle));
-  return (
-    <svg viewBox="0 0 200 120" width="180">
-      <path d={`M 30,100 A 70,70 0 0,1 170,100`} stroke="#1e2d1e" strokeWidth="14" fill="none" strokeLinecap="round"/>
-      <path d={`M 30,100 A 70,70 0 0,1 ${arcX},${arcY}`} stroke={color} strokeWidth="14" fill="none" strokeLinecap="round"
-        style={{filter:`drop-shadow(0 0 8px ${color})`}}/>
-      <text x="100" y="90" textAnchor="middle" fill={color} fontSize="22" fontWeight="800" fontFamily="monospace">
-        {Math.round(value * 100)}%
-      </text>
-      <text x="100" y="108" textAnchor="middle" fill="#aaa" fontSize="10" fontFamily="sans-serif">
-        {getStatusLabel(status)}
-      </text>
-    </svg>
-  );
-}
-
-function ColorAnalysisDemo({ onClose }) {
-  const [analyzing, setAnalyzing] = useState(false);
-  const [result, setResult] = useState(null);
-  const colors = ["#d4a04a","#c4883a","#b8702a","#a85822"];
-  const [selected, setSelected] = useState(null);
-
-  const analyze = () => {
-    if (!selected) return;
-    setAnalyzing(true);
-    setResult(null);
-    setTimeout(() => {
-      const idx = colors.indexOf(selected);
-      const statuses = ["fresh","fresh","warning","expired"];
-      setResult(statuses[idx]);
-      setAnalyzing(false);
-    }, 1800);
+function render(){
+  const stats={
+    total:inventory.length,
+    fresh:inventory.filter(i=>i.status==="fresh").length,
+    warning:inventory.filter(i=>i.status==="warning").length,
   };
+  document.getElementById("app").innerHTML=`
+  <div style="width:390px;min-height:780px;background:#060e06;border-radius:40px;border:2px solid #1a2e1a;overflow:hidden;position:relative;box-shadow:0 0 80px #00e67615,0 40px 80px rgba(0,0,0,0.8)">
 
-  return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}}>
-      <div style={{background:"#0d1f0d",border:"1px solid #1e3a1e",borderRadius:"20px",padding:"28px",width:"100%",maxWidth:"360px",direction:"rtl"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"20px"}}>
-          <h3 style={{color:"#00e676",margin:0,fontFamily:"sans-serif",fontSize:"17px"}}>تحليل اللون 🔬</h3>
-          <button onClick={onClose} style={{background:"none",border:"none",color:"#aaa",fontSize:"20px",cursor:"pointer"}}>✕</button>
-        </div>
-        <p style={{color:"#888",fontSize:"13px",lineHeight:"1.6",marginBottom:"20px"}}>
-          اختر لون الملصق الأقرب لما تراه على اللحم الآن. سيقوم التطبيق بمقارنة البكسلات بالقيم المرجعية.
-        </p>
-        <div style={{display:"flex",gap:"10px",marginBottom:"20px",justifyContent:"center"}}>
-          {colors.map((c,i) => (
-            <button key={i} onClick={()=>setSelected(c)} style={{
-              width:"52px",height:"52px",borderRadius:"12px",background:c,
-              border: selected===c ? "3px solid #00e676" : "3px solid transparent",
-              cursor:"pointer",transition:"transform 0.2s",
-              transform: selected===c ? "scale(1.15)" : "scale(1)",
-              boxShadow: selected===c ? `0 0 12px #00e67660` : "none"
-            }}/>
-          ))}
-        </div>
-        <div style={{display:"flex",gap:"10px",marginBottom:"16px",fontSize:"11px",color:"#666",justifyContent:"center"}}>
-          <span>طازج جداً</span><span style={{flex:1}}/>
-          <span>منتهي</span>
-        </div>
-        <button onClick={analyze} disabled={!selected||analyzing} style={{
-          width:"100%",padding:"13px",borderRadius:"12px",border:"none",
-          background: selected && !analyzing ? "#00e676" : "#1e3a1e",
-          color: selected && !analyzing ? "#000" : "#444",
-          fontWeight:"700",fontSize:"14px",cursor: selected ? "pointer":"default",
-          transition:"all 0.3s",fontFamily:"sans-serif"
-        }}>
-          {analyzing ? "⏳ جاري التحليل..." : "تحليل البكسلات"}
-        </button>
-        {result && (
-          <div style={{marginTop:"16px",padding:"14px",borderRadius:"12px",
-            background: result==="fresh"?"#0a2a0a": result==="warning"?"#2a200a":"#2a0a0a",
-            border:`1px solid ${getStatusColor(result)}30`,textAlign:"center"}}>
-            <div style={{fontSize:"28px",marginBottom:"6px"}}>
-              {result==="fresh"?"✅":result==="warning"?"⚠️":"🚨"}
-            </div>
-            <div style={{color:getStatusColor(result),fontWeight:"700",fontSize:"16px",fontFamily:"sans-serif"}}>
-              {getStatusLabel(result)}
-            </div>
-            {result==="warning" && <p style={{color:"#aaa",fontSize:"12px",margin:"6px 0 0"}}>يُنصح بالاستهلاك قريباً</p>}
-            {result==="expired" && <p style={{color:"#aaa",fontSize:"12px",margin:"6px 0 0"}}>لا يُنصح بالاستهلاك</p>}
-          </div>
-        )}
-      </div>
+    <!-- Status Bar -->
+    <div style="padding:14px 24px 0;display:flex;justify-content:space-between;align-items:center">
+      <span style="color:#aaa;font-size:12px">9:41</span>
+      <div style="width:120px;height:10px;background:#111;border-radius:10px"></div>
+      <span style="color:#aaa;font-size:10px">●●●</span>
     </div>
-  );
+
+    <!-- Header -->
+    <div style="padding:16px 24px 12px;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:8px;height:8px;border-radius:50%;background:#00e676;box-shadow:0 0 8px #00e676"></div>
+          <span style="color:#00e676;font-weight:900;font-size:22px;letter-spacing:-0.5px">FreshCheck</span>
+        </div>
+        <div style="color:#444;font-size:11px;margin-top:2px">الثلاجة الذكية • مرحباً 👋</div>
+      </div>
+      <button onclick="showNotif()" style="width:40px;height:40px;border-radius:12px;border:1px solid #1e3a1e;background:#0a180a;display:flex;align-items:center;justify-content:center;font-size:18px;position:relative">
+        🔔
+        ${stats.warning>0?`<div style="position:absolute;top:-4px;right:-4px;width:16px;height:16px;border-radius:50%;background:#ffb300;color:#000;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center">${stats.warning}</div>`:""}
+      </button>
+    </div>
+
+    <!-- Stats -->
+    <div style="padding:0 24px 16px;display:flex;gap:10px">
+      ${[["إجمالي",stats.total,"#64b5f6"],["طازج",stats.fresh,"#00e676"],["تنبيهات",stats.warning,"#ffb300"]].map(([l,v,c])=>`
+      <div style="flex:1;background:#0d1f0d;border-radius:12px;padding:12px;border:1px solid ${c}20;text-align:center">
+        <div style="color:${c};font-weight:800;font-size:22px">${v}</div>
+        <div style="color:#555;font-size:10px;margin-top:2px">${l}</div>
+      </div>`).join("")}
+    </div>
+
+    <!-- Tabs -->
+    <div style="padding:0 24px 14px;display:flex;gap:8px">
+      ${[["inventory","المخزون"],["analyze","تحليل الألوان"]].map(([t,l])=>`
+      <button onclick="switchTab('${t}')" style="flex:1;padding:9px;border-radius:10px;border:none;background:${currentTab===t?"#00e676":"#0d1f0d"};color:${currentTab===t?"#000":"#555"};font-weight:${currentTab===t?"700":"400"};font-size:13px;transition:all 0.2s">${l}</button>`).join("")}
+    </div>
+
+    <!-- Content -->
+    <div style="padding:0 24px 100px;overflow-y:auto;max-height:480px">
+      ${currentTab==="inventory" ? renderInventory() : renderAnalyze()}
+    </div>
+
+    <!-- FAB -->
+    <div style="position:absolute;bottom:24px;left:50%;transform:translateX(-50%);z-index:10">
+      <button onclick="showScan()" style="width:64px;height:64px;border-radius:20px;border:none;background:linear-gradient(135deg,#00e676,#00c853);box-shadow:0 0 30px #00e67640,0 8px 24px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#000" stroke-width="2.5" stroke-linecap="round">
+          <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+          <rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M20 14v.01M14 20h.01M17 20h3M20 17v3"/>
+        </svg>
+      </button>
+    </div>
+  </div>`;
 }
 
-function ScanModal({ onClose, onSave }) {
-  const [step, setStep] = useState(1);
-  const [scanning, setScanning] = useState(false);
-  const [scanned, setScanned] = useState(false);
-  const [mode, setMode] = useState(null);
-  const [form, setForm] = useState({ name:"", type:"chicken", env:"fridge" });
-
-  const startScan = () => {
-    setScanning(true);
-    setTimeout(() => { setScanning(false); setScanned(true); setStep(2); }, 2000);
-  };
-
-  const handleSave = () => {
-    const p = PRODUCTS[form.type];
-    const newItem = {
-      id: `QR-${Date.now()}`,
-      name: form.name || p.label,
-      type: form.type, env: form.env,
-      addedDate: Date.now(), status: "fresh",
-      barcode: Math.random().toString().slice(2,15)
-    };
-    onSave(newItem);
-    onClose();
-  };
-
-  return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.9)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}}>
-      <div style={{background:"#0d1f0d",border:"1px solid #1e3a1e",borderRadius:"20px",padding:"28px",width:"100%",maxWidth:"360px",direction:"rtl"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"24px"}}>
-          <h3 style={{color:"#00e676",margin:0,fontFamily:"sans-serif"}}>مسح جديد</h3>
-          <button onClick={onClose} style={{background:"none",border:"none",color:"#aaa",fontSize:"20px",cursor:"pointer"}}>✕</button>
-        </div>
-
-        {step === 1 && (
-          <div style={{textAlign:"center"}}>
-            <div style={{
-              width:"180px",height:"180px",margin:"0 auto 24px",borderRadius:"20px",
-              border: scanning ? "2px solid #00e676" : "2px dashed #1e3a1e",
-              display:"flex",alignItems:"center",justifyContent:"center",
-              background:"#0a180a",position:"relative",overflow:"hidden",
-              transition:"border-color 0.3s"
-            }}>
-              {scanning && <div style={{position:"absolute",top:0,left:0,right:0,height:"3px",background:"#00e676",animation:"scanLine 1s infinite",boxShadow:"0 0 12px #00e676"}}/>}
-              <QRScannerIcon/>
-              <style>{`@keyframes scanLine{0%{top:0}100%{top:100%}}`}</style>
-            </div>
-            <p style={{color:"#666",fontSize:"13px",marginBottom:"20px"}}>
-              {scanning ? "⏳ جاري المسح..." : "وجّه الكاميرا نحو الباركود أو رمز QR"}
-            </p>
-            <button onClick={startScan} disabled={scanning} style={{
-              width:"100%",padding:"13px",borderRadius:"12px",border:"none",
-              background: scanning ? "#1e3a1e":"#00e676",color:scanning?"#444":"#000",
-              fontWeight:"700",fontSize:"15px",cursor:"pointer",fontFamily:"sans-serif"
-            }}>
-              {scanning ? "يتم المسح..." : "📷 مسح الآن"}
-            </button>
-          </div>
-        )}
-
-        {step === 2 && !mode && (
-          <div>
-            <div style={{background:"#0a2a0a",borderRadius:"12px",padding:"14px",marginBottom:"20px",textAlign:"center"}}>
-              <div style={{color:"#00e676",fontSize:"13px",marginBottom:"4px"}}>✅ تم التعرف على المنتج</div>
-              <div style={{color:"#fff",fontWeight:"700"}}>لحم بتلو طازز — 500g</div>
-              <div style={{color:"#666",fontSize:"12px"}}>4006381333931</div>
-            </div>
-            <p style={{color:"#aaa",fontSize:"13px",textAlign:"center",marginBottom:"16px"}}>كيف تريد المتابعة؟</p>
-            <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
-              <button onClick={()=>setMode("quick")} style={{
-                padding:"14px",borderRadius:"12px",border:"1px solid #1e3a1e",
-                background:"#0a180a",color:"#fff",fontSize:"14px",cursor:"pointer",fontFamily:"sans-serif"
-              }}>
-                ⚡ مسح سريع — فحص فوري دون حفظ
-              </button>
-              <button onClick={()=>setMode("save")} style={{
-                padding:"14px",borderRadius:"12px",border:"none",
-                background:"#00e676",color:"#000",fontSize:"14px",fontWeight:"700",cursor:"pointer",fontFamily:"sans-serif"
-              }}>
-                💾 حفظ في المخزون
-              </button>
-            </div>
-          </div>
-        )}
-
-        {step === 2 && mode === "quick" && (
-          <div style={{textAlign:"center"}}>
-            <FreshnessGauge status="fresh"/>
-            <p style={{color:"#aaa",fontSize:"13px",margin:"12px 0"}}>الحالة الآنية بناءً على بيانات الملصق</p>
-            <button onClick={onClose} style={{
-              width:"100%",padding:"13px",borderRadius:"12px",border:"1px solid #1e3a1e",
-              background:"transparent",color:"#aaa",cursor:"pointer",fontFamily:"sans-serif"
-            }}>إغلاق</button>
-          </div>
-        )}
-
-        {step === 2 && mode === "save" && (
-          <div style={{display:"flex",flexDirection:"column",gap:"14px"}}>
-            <div>
-              <label style={{color:"#aaa",fontSize:"12px",display:"block",marginBottom:"6px"}}>اسم مخصص (اختياري)</label>
-              <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}
-                placeholder="مثال: صدر دجاج العشاء"
-                style={{width:"100%",padding:"10px 12px",borderRadius:"10px",border:"1px solid #1e3a1e",
-                  background:"#0a180a",color:"#fff",fontSize:"14px",boxSizing:"border-box",fontFamily:"sans-serif"}}/>
-            </div>
-            <div>
-              <label style={{color:"#aaa",fontSize:"12px",display:"block",marginBottom:"8px"}}>نوع المنتج</label>
-              <div style={{display:"flex",gap:"8px"}}>
-                {Object.entries(PRODUCTS).map(([k,v])=>(
-                  <button key={k} onClick={()=>setForm({...form,type:k})} style={{
-                    flex:1,padding:"9px 4px",borderRadius:"10px",fontSize:"11px",cursor:"pointer",
-                    border:`1px solid ${form.type===k?v.color:"#1e3a1e"}`,
-                    background: form.type===k ? `${v.color}20` : "#0a180a",
-                    color: form.type===k ? v.color : "#666",fontFamily:"sans-serif"
-                  }}>{v.label}</button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label style={{color:"#aaa",fontSize:"12px",display:"block",marginBottom:"8px"}}>بيئة التخزين</label>
-              <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
-                {Object.entries(ENV_LABELS).map(([k,v])=>(
-                  <button key={k} onClick={()=>setForm({...form,env:k})} style={{
-                    padding:"9px 12px",borderRadius:"10px",fontSize:"12px",cursor:"pointer",textAlign:"right",
-                    border:`1px solid ${form.env===k?"#00e676":"#1e3a1e"}`,
-                    background: form.env===k ? "#00e67615":"#0a180a",
-                    color: form.env===k?"#00e676":"#666",fontFamily:"sans-serif"
-                  }}>{v}</button>
-                ))}
-              </div>
-            </div>
-            <div style={{background:"#0a2a0a",borderRadius:"10px",padding:"12px",fontSize:"12px",color:"#aaa"}}>
-              ⏱ العمر المتوقع: <span style={{color:"#00e676",fontWeight:"700"}}>
-                {PRODUCTS[form.type].shelfLife[form.env]} يوم
-              </span>
-            </div>
-            <button onClick={handleSave} style={{
-              padding:"13px",borderRadius:"12px",border:"none",
-              background:"#00e676",color:"#000",fontWeight:"700",fontSize:"15px",cursor:"pointer",fontFamily:"sans-serif"
-            }}>✓ حفظ في المخزون</button>
-          </div>
-        )}
+function renderInventory(){
+  if(!inventory.length) return `<div style="text-align:center;padding:60px 0;color:#444"><div style="font-size:48px;margin-bottom:12px">🧊</div><div>المخزون فارغ، أضف منتجاً جديداً</div></div>`;
+  return inventory.map(item=>{
+    const p=PRODUCTS[item.type], dl=daysLeft(item), c=sc(item.status);
+    return `
+    <div class="fade" style="background:#0d1f0d;border:1px solid #1a2e1a;border-radius:16px;padding:16px;display:flex;align-items:center;gap:14px;margin-bottom:10px">
+      <div style="width:48px;height:48px;border-radius:12px;background:${p.color}20;border:1px solid ${p.color}40;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">
+        ${p.label.split(" ")[1]}
       </div>
-    </div>
-  );
+      <div style="flex:1;min-width:0">
+        <div style="color:#fff;font-weight:700;font-size:15px;margin-bottom:3px">${item.name}</div>
+        <div style="color:#666;font-size:11px;margin-bottom:6px">${ENV[item.env].split(" ")[0]} • ${item.barcode}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${c}15;color:${c};border:1px solid ${c}40">${sl(item.status)}</div>
+          <div style="color:#555;font-size:11px">${dl} يوم متبقي</div>
+        </div>
+      </div>
+      <button onclick="showColor()" style="padding:8px 12px;border-radius:10px;border:1px solid #1e3a1e;background:#0a180a;color:#00e676;font-size:11px;white-space:nowrap;flex-shrink:0">تحديث 🔬</button>
+    </div>`;
+  }).join("");
 }
 
-function ItemCard({ item, onAnalyze }) {
-  const p = PRODUCTS[item.type];
-  const daysLeft = getDaysLeft(item);
-  const sc = getStatusColor(item.status);
-
-  return (
-    <div style={{
-      background:"#0d1f0d",border:`1px solid #1a2e1a`,borderRadius:"16px",
-      padding:"16px",display:"flex",alignItems:"center",gap:"14px",
-      transition:"transform 0.2s",cursor:"pointer",direction:"rtl"
-    }}>
-      <div style={{
-        width:"48px",height:"48px",borderRadius:"12px",
-        background:`${p.color}20`,border:`1px solid ${p.color}40`,
-        display:"flex",alignItems:"center",justifyContent:"center",fontSize:"22px",flexShrink:0
-      }}>
-        {p.label.split(" ")[1]}
+function renderAnalyze(){
+  return `
+  <div class="fade">
+    <div style="background:#0d1f0d;border:1px solid #1e3a1e;border-radius:16px;padding:20px;margin-bottom:14px;text-align:center">
+      <div style="font-size:36px;margin-bottom:10px">🔬</div>
+      <div style="color:#fff;font-weight:700;font-size:16px;margin-bottom:8px">تحليل بكسلات الملصق</div>
+      <div style="color:#666;font-size:12px;line-height:1.7;margin-bottom:16px">
+        اختر لون الملصق الملون على اللحم، وسيقوم التطبيق بمقارنته بالدرجات المرجعية وإخبارك بحالة الطازجية
       </div>
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{color:"#fff",fontWeight:"700",fontSize:"15px",marginBottom:"3px",fontFamily:"sans-serif"}}>{item.name}</div>
-        <div style={{color:"#666",fontSize:"11px",marginBottom:"6px"}}>
-          {ENV_LABELS[item.env].split(" ")[0]} • {item.barcode}
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
-          <div style={{
-            padding:"2px 10px",borderRadius:"20px",fontSize:"11px",fontWeight:"700",
-            background:`${sc}15`,color:sc,border:`1px solid ${sc}40`
-          }}>{getStatusLabel(item.status)}</div>
-          <div style={{color:"#555",fontSize:"11px"}}>{daysLeft} يوم متبقي</div>
-        </div>
-      </div>
-      <button onClick={()=>onAnalyze(item)} style={{
-        padding:"8px 12px",borderRadius:"10px",border:"1px solid #1e3a1e",
-        background:"#0a180a",color:"#00e676",fontSize:"11px",cursor:"pointer",
-        whiteSpace:"nowrap",fontFamily:"sans-serif",flexShrink:0
-      }}>تحديث 🔬</button>
+      <button onclick="showColor()" style="padding:12px 28px;border-radius:12px;border:none;background:#00e676;color:#000;font-weight:700;font-size:14px">ابدأ التحليل</button>
     </div>
-  );
+    <div style="background:#0d1f0d;border:1px solid #1a2a1a;border-radius:16px;padding:18px">
+      <div style="color:#00e676;font-weight:700;margin-bottom:12px;font-size:14px">🎨 مرجع الألوان</div>
+      ${[["طازج جداً","#d4a04a","لون ذهبي فاتح"],["طازج","#c4883a","لون بني دافئ"],["قريب من الانتهاء","#b8702a","لون بني داكن"],["منتهي","#a85822","لون بني محمر"]].map(([l,c,n])=>`
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+        <div style="width:32px;height:32px;border-radius:8px;background:${c};flex-shrink:0"></div>
+        <div>
+          <div style="color:#fff;font-size:13px">${l}</div>
+          <div style="color:#555;font-size:11px">${n}</div>
+        </div>
+      </div>`).join("")}
+    </div>
+  </div>`;
 }
 
-function NotifPanel({ onClose }) {
-  const notifs = [
-    { id:1, icon:"⚠️", title:"كتف غنم", msg:"اقترب موعد استهلاكها المفضل — يُنصح بالاستخدام اليوم", color:"#ffb300", time:"قبل ساعة" },
-    { id:2, icon:"✅", title:"صدر دجاج", msg:"في حالة طازجة ممتازة، عمر متوقع 1.2 يوم", color:"#00e676", time:"قبل 3 ساعات" },
-    { id:3, icon:"🧊", title:"ريش لحم بقري", msg:"محفوظ في الفريزر بشكل صحيح", color:"#64b5f6", time:"أمس" },
-  ];
-  return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:100,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"20px",paddingTop:"60px"}}>
-      <div style={{background:"#0d1f0d",border:"1px solid #1e3a1e",borderRadius:"20px",padding:"24px",width:"100%",maxWidth:"380px",direction:"rtl"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"20px"}}>
-          <h3 style={{color:"#00e676",margin:0,fontFamily:"sans-serif"}}>التنبيهات 🔔</h3>
-          <button onClick={onClose} style={{background:"none",border:"none",color:"#aaa",fontSize:"20px",cursor:"pointer"}}>✕</button>
-        </div>
-        <div style={{display:"flex",flexDirection:"column",gap:"12px"}}>
-          {notifs.map(n=>(
-            <div key={n.id} style={{
-              display:"flex",gap:"12px",padding:"14px",borderRadius:"12px",
-              background:"#0a180a",border:`1px solid ${n.color}20`
-            }}>
-              <div style={{fontSize:"22px"}}>{n.icon}</div>
-              <div style={{flex:1}}>
-                <div style={{color:n.color,fontWeight:"700",fontSize:"13px",marginBottom:"3px",fontFamily:"sans-serif"}}>{n.title}</div>
-                <div style={{color:"#888",fontSize:"12px",lineHeight:"1.5"}}>{n.msg}</div>
-                <div style={{color:"#444",fontSize:"11px",marginTop:"5px"}}>{n.time}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+function switchTab(t){currentTab=t;render()}
+
+// ── Overlay helpers ──────────────────────────────
+function overlay(html){
+  const d=document.createElement("div");
+  d.id="overlay";
+  d.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px";
+  d.innerHTML=html;
+  document.body.appendChild(d);
+}
+function closeOverlay(){const o=document.getElementById("overlay");if(o)o.remove()}
+
+// ── Notifications ────────────────────────────────
+function showNotif(){
+  overlay(`
+  <div class="fade" style="background:#0d1f0d;border:1px solid #1e3a1e;border-radius:20px;padding:24px;width:100%;max-width:360px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h3 style="color:#00e676;font-size:17px">التنبيهات 🔔</h3>
+      <button onclick="closeOverlay()" style="background:none;border:none;color:#aaa;font-size:20px">✕</button>
     </div>
-  );
+    ${[
+      {icon:"⚠️",title:"كتف غنم",msg:"اقترب موعد استهلاكها — يُنصح بالاستخدام اليوم",color:"#ffb300",time:"قبل ساعة"},
+      {icon:"✅",title:"صدر دجاج",msg:"في حالة طازجة ممتازة",color:"#00e676",time:"قبل 3 ساعات"},
+      {icon:"🧊",title:"ريش لحم بقري",msg:"محفوظ في الفريزر بشكل صحيح",color:"#64b5f6",time:"أمس"},
+    ].map(n=>`
+    <div style="display:flex;gap:12px;padding:14px;border-radius:12px;background:#0a180a;border:1px solid ${n.color}20;margin-bottom:10px">
+      <div style="font-size:22px">${n.icon}</div>
+      <div style="flex:1">
+        <div style="color:${n.color};font-weight:700;font-size:13px;margin-bottom:3px">${n.title}</div>
+        <div style="color:#888;font-size:12px;line-height:1.5">${n.msg}</div>
+        <div style="color:#444;font-size:11px;margin-top:5px">${n.time}</div>
+      </div>
+    </div>`).join("")}
+  </div>`);
 }
 
-export default function FreshCheckApp() {
-  const [inventory, setInventory] = useState(MOCK_ITEMS);
-  const [showScan, setShowScan] = useState(false);
-  const [showColor, setShowColor] = useState(false);
-  const [showNotif, setShowNotif] = useState(false);
-  const [tab, setTab] = useState("inventory");
+// ── Color Analysis ───────────────────────────────
+function showColor(){
+  overlay(`
+  <div class="fade" style="background:#0d1f0d;border:1px solid #1e3a1e;border-radius:20px;padding:28px;width:100%;max-width:360px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h3 style="color:#00e676;font-size:17px">تحليل اللون 🔬</h3>
+      <button onclick="closeOverlay()" style="background:none;border:none;color:#aaa;font-size:20px">✕</button>
+    </div>
+    <p style="color:#888;font-size:13px;line-height:1.6;margin-bottom:20px">اختر لون الملصق الأقرب لما تراه على اللحم الآن.</p>
+    <div style="display:flex;gap:10px;margin-bottom:8px;justify-content:center" id="colorBtns">
+      ${["#d4a04a","#c4883a","#b8702a","#a85822"].map((c,i)=>`
+      <button onclick="selectColor(this,'${c}',${i})" data-c="${c}" data-i="${i}"
+        style="width:52px;height:52px;border-radius:12px;background:${c};border:3px solid transparent;transition:transform 0.2s"></button>`).join("")}
+    </div>
+    <div style="display:flex;font-size:11px;color:#666;margin-bottom:16px;justify-content:space-between"><span>طازج جداً</span><span>منتهي</span></div>
+    <button id="analyzeBtn" onclick="runAnalysis()" disabled
+      style="width:100%;padding:13px;border-radius:12px;border:none;background:#1e3a1e;color:#444;font-weight:700;font-size:14px;transition:all 0.3s">
+      تحليل البكسلات
+    </button>
+    <div id="colorResult"></div>
+  </div>`);
+}
 
-  const stats = {
-    fresh: inventory.filter(i=>i.status==="fresh").length,
-    warning: inventory.filter(i=>i.status==="warning").length,
-    total: inventory.length,
-  };
+let _selColor=null,_selIdx=null;
+function selectColor(btn,c,i){
+  _selColor=c; _selIdx=i;
+  document.querySelectorAll("#colorBtns button").forEach(b=>{
+    b.style.border="3px solid transparent";
+    b.style.transform="scale(1)";
+    b.style.boxShadow="none";
+  });
+  btn.style.border="3px solid #00e676";
+  btn.style.transform="scale(1.15)";
+  btn.style.boxShadow="0 0 12px #00e67660";
+  const ab=document.getElementById("analyzeBtn");
+  ab.disabled=false; ab.style.background="#00e676"; ab.style.color="#000";
+}
 
-  return (
-    <div style={{
-      minHeight:"100vh",background:"#060e06",
-      display:"flex",alignItems:"center",justifyContent:"center",
-      fontFamily:"'Segoe UI', Tahoma, sans-serif"
-    }}>
-      {/* Phone Frame */}
-      <div style={{
-        width:"390px",minHeight:"780px",background:"#060e06",
-        borderRadius:"40px",border:"2px solid #1a2e1a",
-        overflow:"hidden",position:"relative",
-        boxShadow:"0 0 80px #00e67615, 0 40px 80px rgba(0,0,0,0.8)"
-      }}>
+function runAnalysis(){
+  const ab=document.getElementById("analyzeBtn");
+  ab.disabled=true; ab.textContent="⏳ جاري التحليل..."; ab.style.background="#1e3a1e"; ab.style.color="#444";
+  setTimeout(()=>{
+    const statuses=["fresh","fresh","warning","expired"];
+    const s=statuses[_selIdx];
+    const c=s==="fresh"?"#00e676":s==="warning"?"#ffb300":"#f44336";
+    const bg=s==="fresh"?"#0a2a0a":s==="warning"?"#2a200a":"#2a0a0a";
+    const icon=s==="fresh"?"✅":s==="warning"?"⚠️":"🚨";
+    const label=s==="fresh"?"طازج":s==="warning"?"قريب من الانتهاء":"منتهي الصلاحية";
+    const note=s==="warning"?"<p style='color:#aaa;font-size:12px;margin:6px 0 0'>يُنصح بالاستهلاك قريباً</p>":
+               s==="expired"?"<p style='color:#aaa;font-size:12px;margin:6px 0 0'>لا يُنصح بالاستهلاك</p>":"";
+    document.getElementById("colorResult").innerHTML=`
+    <div class="fade" style="margin-top:16px;padding:14px;border-radius:12px;background:${bg};border:1px solid ${c}30;text-align:center">
+      <div style="font-size:28px;margin-bottom:6px">${icon}</div>
+      <div style="color:${c};font-weight:700;font-size:16px">${label}</div>${note}
+    </div>`;
+    ab.textContent="تحليل البكسلات"; ab.disabled=false; ab.style.background="#00e676"; ab.style.color="#000";
+  },1800);
+}
 
-        {/* Status Bar */}
-        <div style={{padding:"14px 24px 0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span style={{color:"#aaa",fontSize:"12px"}}>9:41</span>
-          <div style={{width:"120px",height:"10px",background:"#111",borderRadius:"10px"}}/>
-          <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
-            <span style={{color:"#aaa",fontSize:"10px"}}>●●●</span>
-          </div>
-        </div>
+// ── Scan Modal ───────────────────────────────────
+let scanStep=1, scanMode=null, scanForm={name:"",type:"chicken",env:"fridge"};
 
-        {/* Header */}
-        <div style={{padding:"16px 24px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div>
-            <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
-              <div style={{width:"8px",height:"8px",borderRadius:"50%",background:"#00e676",boxShadow:"0 0 8px #00e676"}}/>
-              <span style={{color:"#00e676",fontWeight:"900",fontSize:"22px",letterSpacing:"-0.5px"}}>FreshCheck</span>
-            </div>
-            <div style={{color:"#444",fontSize:"11px",marginTop:"2px"}}>الثلاجة الذكية • مرحباً 👋</div>
-          </div>
-          <button onClick={()=>setShowNotif(true)} style={{
-            width:"40px",height:"40px",borderRadius:"12px",border:"1px solid #1e3a1e",
-            background:"#0a180a",display:"flex",alignItems:"center",justifyContent:"center",
-            cursor:"pointer",position:"relative",fontSize:"18px"
-          }}>
-            🔔
-            {stats.warning > 0 && <div style={{
-              position:"absolute",top:"-4px",right:"-4px",
-              width:"16px",height:"16px",borderRadius:"50%",
-              background:"#ffb300",color:"#000",fontSize:"10px",fontWeight:"700",
-              display:"flex",alignItems:"center",justifyContent:"center"
-            }}>{stats.warning}</div>}
-          </button>
-        </div>
+function showScan(){scanStep=1;scanMode=null;scanForm={name:"",type:"chicken",env:"fridge"};renderScan()}
 
-        {/* Stats Row */}
-        <div style={{padding:"0 24px 16px",display:"flex",gap:"10px"}}>
-          {[
-            {label:"إجمالي", val:stats.total, color:"#64b5f6"},
-            {label:"طازج", val:stats.fresh, color:"#00e676"},
-            {label:"تنبيهات", val:stats.warning, color:"#ffb300"},
-          ].map(s=>(
-            <div key={s.label} style={{
-              flex:1,background:"#0d1f0d",borderRadius:"12px",padding:"12px",
-              border:`1px solid ${s.color}20`,textAlign:"center"
-            }}>
-              <div style={{color:s.color,fontWeight:"800",fontSize:"22px"}}>{s.val}</div>
-              <div style={{color:"#555",fontSize:"10px",marginTop:"2px"}}>{s.label}</div>
-            </div>
-          ))}
-        </div>
+function renderScan(){
+  const inner = scanStep===1 ? renderScanStep1() : (scanMode===null ? renderScanStep2() : scanMode==="quick" ? renderScanQuick() : renderScanSave());
+  const existing=document.getElementById("overlay");
+  if(existing){existing.querySelector(".scan-inner").innerHTML=inner;return;}
+  overlay(`<div class="fade scan-inner" style="background:#0d1f0d;border:1px solid #1e3a1e;border-radius:20px;padding:28px;width:100%;max-width:360px">${inner}</div>`);
+}
 
-        {/* Tab Bar */}
-        <div style={{padding:"0 24px 14px",display:"flex",gap:"8px"}}>
-          {[["inventory","المخزون"],["analyze","تحليل الألوان"]].map(([t,l])=>(
-            <button key={t} onClick={()=>setTab(t)} style={{
-              flex:1,padding:"9px",borderRadius:"10px",border:"none",cursor:"pointer",
-              background: tab===t?"#00e676":"#0d1f0d",
-              color: tab===t?"#000":"#555",
-              fontWeight: tab===t?"700":"400",fontSize:"13px",fontFamily:"sans-serif",
-              transition:"all 0.2s"
-            }}>{l}</button>
-          ))}
-        </div>
+function renderScanStep1(){return `
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+    <h3 style="color:#00e676">مسح جديد</h3>
+    <button onclick="closeOverlay()" style="background:none;border:none;color:#aaa;font-size:20px">✕</button>
+  </div>
+  <div style="text-align:center">
+    <div id="scanBox" style="width:180px;height:180px;margin:0 auto 24px;border-radius:20px;border:2px dashed #1e3a1e;display:flex;align-items:center;justify-content:center;background:#0a180a;position:relative;overflow:hidden;transition:border-color 0.3s">
+      <svg viewBox="0 0 100 100" width="80" height="80" fill="none">
+        <rect x="5" y="5" width="30" height="30" rx="4" stroke="#00e676" stroke-width="4" fill="none"/>
+        <rect x="65" y="5" width="30" height="30" rx="4" stroke="#00e676" stroke-width="4" fill="none"/>
+        <rect x="5" y="65" width="30" height="30" rx="4" stroke="#00e676" stroke-width="4" fill="none"/>
+        <rect x="13" y="13" width="14" height="14" rx="2" fill="#00e676"/>
+        <rect x="73" y="13" width="14" height="14" rx="2" fill="#00e676"/>
+        <rect x="13" y="73" width="14" height="14" rx="2" fill="#00e676"/>
+        <line x1="65" y1="65" x2="95" y2="65" stroke="#00e676" stroke-width="3"/>
+        <line x1="65" y1="75" x2="85" y2="75" stroke="#00e676" stroke-width="3"/>
+        <line x1="65" y1="85" x2="95" y2="85" stroke="#00e676" stroke-width="3"/>
+        <line x1="65" y1="95" x2="75" y2="95" stroke="#00e676" stroke-width="3"/>
+        <line x1="85" y1="95" x2="95" y2="95" stroke="#00e676" stroke-width="3"/>
+      </svg>
+    </div>
+    <p style="color:#666;font-size:13px;margin-bottom:20px">وجّه الكاميرا نحو الباركود أو رمز QR</p>
+    <button id="scanBtn" onclick="startScan()" style="width:100%;padding:13px;border-radius:12px;border:none;background:#00e676;color:#000;font-weight:700;font-size:15px">📷 مسح الآن</button>
+  </div>`
+}
 
-        {/* Content */}
-        <div style={{padding:"0 24px",paddingBottom:"100px",overflowY:"auto",maxHeight:"480px"}}>
-          {tab === "inventory" && (
-            <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
-              {inventory.map(item=>(
-                <ItemCard key={item.id} item={item} onAnalyze={()=>setShowColor(true)}/>
-              ))}
-              {inventory.length === 0 && (
-                <div style={{textAlign:"center",padding:"60px 0",color:"#444"}}>
-                  <div style={{fontSize:"48px",marginBottom:"12px"}}>🧊</div>
-                  <div>المخزون فارغ، أضف منتجاً جديداً</div>
-                </div>
-              )}
-            </div>
-          )}
+function startScan(){
+  const b=document.getElementById("scanBox");
+  const btn=document.getElementById("scanBtn");
+  b.style.border="2px solid #00e676";
+  btn.style.background="#1e3a1e"; btn.style.color="#444"; btn.disabled=true; btn.textContent="يتم المسح...";
+  const bar=document.createElement("div");
+  bar.style.cssText="position:absolute;top:0;left:0;right:0;height:3px;background:#00e676;box-shadow:0 0 12px #00e676;animation:scanLine 1s infinite";
+  b.appendChild(bar);
+  setTimeout(()=>{scanStep=2;renderScan()},2000);
+}
 
-          {tab === "analyze" && (
-            <div style={{direction:"rtl"}}>
-              <div style={{background:"#0d1f0d",border:"1px solid #1e3a1e",borderRadius:"16px",padding:"20px",marginBottom:"14px",textAlign:"center"}}>
-                <div style={{fontSize:"36px",marginBottom:"10px"}}>🔬</div>
-                <div style={{color:"#fff",fontWeight:"700",fontSize:"16px",marginBottom:"8px",fontFamily:"sans-serif"}}>تحليل بكسلات الملصق</div>
-                <div style={{color:"#666",fontSize:"12px",lineHeight:"1.7",marginBottom:"16px"}}>
-                  اختر لون الملصق الملون على اللحم، وسيقوم التطبيق بمقارنته بالدرجات المرجعية وإخبارك بحالة الطازجية — مفيد لمن يعاني من عمى الألوان أو ضعف الإضاءة
-                </div>
-                <button onClick={()=>setShowColor(true)} style={{
-                  padding:"12px 28px",borderRadius:"12px",border:"none",
-                  background:"#00e676",color:"#000",fontWeight:"700",cursor:"pointer",fontSize:"14px",fontFamily:"sans-serif"
-                }}>ابدأ التحليل</button>
-              </div>
-              <div style={{background:"#0d1f0d",border:"1px solid #1a2a1a",borderRadius:"16px",padding:"18px",direction:"rtl"}}>
-                <div style={{color:"#00e676",fontWeight:"700",marginBottom:"12px",fontSize:"14px",fontFamily:"sans-serif"}}>🎨 مرجع الألوان</div>
-                {[
-                  {label:"طازج جداً",c:"#d4a04a",note:"لون دهبي فاتح"},
-                  {label:"طازج",c:"#c4883a",note:"لون بني دافئ"},
-                  {label:"قريب من الانتهاء",c:"#b8702a",note:"لون بني داكن"},
-                  {label:"منتهي",c:"#a85822",note:"لون بني محمر"},
-                ].map((x,i)=>(
-                  <div key={i} style={{display:"flex",alignItems:"center",gap:"12px",marginBottom:"10px"}}>
-                    <div style={{width:"32px",height:"32px",borderRadius:"8px",background:x.c,flexShrink:0}}/>
-                    <div>
-                      <div style={{color:"#fff",fontSize:"13px",fontFamily:"sans-serif"}}>{x.label}</div>
-                      <div style={{color:"#555",fontSize:"11px"}}>{x.note}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+function renderScanStep2(){return `
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+    <h3 style="color:#00e676">مسح جديد</h3>
+    <button onclick="closeOverlay()" style="background:none;border:none;color:#aaa;font-size:20px">✕</button>
+  </div>
+  <div style="background:#0a2a0a;border-radius:12px;padding:14px;margin-bottom:20px;text-align:center">
+    <div style="color:#00e676;font-size:13px;margin-bottom:4px">✅ تم التعرف على المنتج</div>
+    <div style="color:#fff;font-weight:700">لحم بتلو طازج — 500g</div>
+    <div style="color:#666;font-size:12px">4006381333931</div>
+  </div>
+  <p style="color:#aaa;font-size:13px;text-align:center;margin-bottom:16px">كيف تريد المتابعة؟</p>
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <button onclick="setScanMode('quick')" style="padding:14px;border-radius:12px;border:1px solid #1e3a1e;background:#0a180a;color:#fff;font-size:14px">⚡ مسح سريع — فحص فوري دون حفظ</button>
+    <button onclick="setScanMode('save')" style="padding:14px;border-radius:12px;border:none;background:#00e676;color:#000;font-size:14px;font-weight:700">💾 حفظ في المخزون</button>
+  </div>`
+}
 
-        {/* Scan FAB */}
-        <div style={{position:"absolute",bottom:"24px",left:"50%",transform:"translateX(-50%)",zIndex:10}}>
-          <button onClick={()=>setShowScan(true)} style={{
-            width:"64px",height:"64px",borderRadius:"20px",border:"none",
-            background:"linear-gradient(135deg,#00e676,#00c853)",
-            color:"#000",fontSize:"28px",cursor:"pointer",
-            boxShadow:"0 0 30px #00e67640, 0 8px 24px rgba(0,0,0,0.5)",
-            display:"flex",alignItems:"center",justifyContent:"center",
-            transition:"transform 0.2s"
-          }}>
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#000" strokeWidth="2.5" strokeLinecap="round">
-              <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
-              <rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M20 14v.01M14 20h.01M17 20h3M20 17v3"/>
-            </svg>
-          </button>
-        </div>
+function setScanMode(m){scanMode=m;renderScan()}
 
-        {/* Modals */}
-        {showScan && <ScanModal onClose={()=>setShowScan(false)} onSave={item=>setInventory(p=>[item,...p])}/>}
-        {showColor && <ColorAnalysisDemo onClose={()=>setShowColor(false)}/>}
-        {showNotif && <NotifPanel onClose={()=>setShowNotif(false)}/>}
+function renderScanQuick(){
+  const gauge=buildGaugeSVG("fresh");
+  return `
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+    <h3 style="color:#00e676">نتيجة الفحص</h3>
+    <button onclick="closeOverlay()" style="background:none;border:none;color:#aaa;font-size:20px">✕</button>
+  </div>
+  <div style="text-align:center">${gauge}
+    <p style="color:#aaa;font-size:13px;margin:12px 0">الحالة الآنية بناءً على بيانات الملصق</p>
+    <button onclick="closeOverlay()" style="width:100%;padding:13px;border-radius:12px;border:1px solid #1e3a1e;background:transparent;color:#aaa">إغلاق</button>
+  </div>`
+}
+
+function buildGaugeSVG(status){
+  const v=status==="fresh"?0.85:status==="warning"?0.45:0.1;
+  const c=status==="fresh"?"#00e676":status==="warning"?"#ffb300":"#f44336";
+  const a=v*180, r=70, cx=100, cy=100;
+  const rad=deg=>deg*Math.PI/180;
+  const ax=cx+r*Math.cos(rad(180+a)), ay=cy+r*Math.sin(rad(180+a));
+  return `<svg viewBox="0 0 200 120" width="180" style="display:block;margin:0 auto">
+    <path d="M 30,100 A 70,70 0 0,1 170,100" stroke="#1e2d1e" stroke-width="14" fill="none" stroke-linecap="round"/>
+    <path d="M 30,100 A 70,70 0 0,1 ${ax},${ay}" stroke="${c}" stroke-width="14" fill="none" stroke-linecap="round" style="filter:drop-shadow(0 0 8px ${c})"/>
+    <text x="100" y="90" text-anchor="middle" fill="${c}" font-size="22" font-weight="800" font-family="monospace">${Math.round(v*100)}%</text>
+    <text x="100" y="108" text-anchor="middle" fill="#aaa" font-size="10" font-family="sans-serif">${sl(status)}</text>
+  </svg>`;
+}
+
+function renderScanSave(){
+  const p=PRODUCTS[scanForm.type];
+  return `
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+    <h3 style="color:#00e676">حفظ في المخزون</h3>
+    <button onclick="closeOverlay()" style="background:none;border:none;color:#aaa;font-size:20px">✕</button>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div>
+      <label style="color:#aaa;font-size:12px;display:block;margin-bottom:6px">اسم مخصص (اختياري)</label>
+      <input id="nameInput" value="${scanForm.name}" oninput="scanForm.name=this.value" placeholder="مثال: صدر دجاج العشاء"
+        style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid #1e3a1e;background:#0a180a;color:#fff;font-size:14px"/>
+    </div>
+    <div>
+      <label style="color:#aaa;font-size:12px;display:block;margin-bottom:8px">نوع المنتج</label>
+      <div style="display:flex;gap:8px">
+        ${Object.entries(PRODUCTS).map(([k,v])=>`
+        <button onclick="setScanType('${k}')" style="flex:1;padding:9px 4px;border-radius:10px;font-size:11px;border:1px solid ${scanForm.type===k?v.color:"#1e3a1e"};background:${scanForm.type===k?v.color+"20":"#0a180a"};color:${scanForm.type===k?v.color:"#666"}">${v.label}</button>`).join("")}
       </div>
     </div>
-  );
+    <div>
+      <label style="color:#aaa;font-size:12px;display:block;margin-bottom:8px">بيئة التخزين</label>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${Object.entries(ENV).map(([k,v])=>`
+        <button onclick="setScanEnv('${k}')" style="padding:9px 12px;border-radius:10px;font-size:12px;text-align:right;border:1px solid ${scanForm.env===k?"#00e676":"#1e3a1e"};background:${scanForm.env===k?"#00e67615":"#0a180a"};color:${scanForm.env===k?"#00e676":"#666"}">${v}</button>`).join("")}
+      </div>
+    </div>
+    <div style="background:#0a2a0a;border-radius:10px;padding:12px;font-size:12px;color:#aaa">
+      ⏱ العمر المتوقع: <span style="color:#00e676;font-weight:700">${p.shelf[scanForm.env]} يوم</span>
+    </div>
+    <button onclick="saveItem()" style="padding:13px;border-radius:12px;border:none;background:#00e676;color:#000;font-weight:700;font-size:15px">✓ حفظ في المخزون</button>
+  </div>`
 }
+
+function setScanType(t){scanForm.type=t;renderScan()}
+function setScanEnv(e){scanForm.env=e;renderScan()}
+function saveItem(){
+  const p=PRODUCTS[scanForm.type];
+  inventory.unshift({
+    id:`QR-${Date.now()}`,
+    name:scanForm.name||p.label,
+    type:scanForm.type, env:scanForm.env,
+    added:Date.now(), status:"fresh",
+    barcode:Math.random().toString().slice(2,15)
+  });
+  closeOverlay(); render();
+}
+
+render();
+</script>
+</body>
+</html>
